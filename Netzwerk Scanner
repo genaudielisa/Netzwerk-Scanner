@@ -1,0 +1,85 @@
+"""
+Netzwerk-Scanner
+Pingt alle Adressen eines Netzwerks an und listet die erreichbaren Geräte auf.
+
+Aufruf:
+    python netzwerk_scanner.py 192.168.0.0/24
+"""
+
+import argparse
+import ipaddress
+import platform
+import shutil
+import socket
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+
+def ist_erreichbar(ip: str) -> bool:
+    """Schickt einen einzelnen Ping an die Adresse und meldet, ob eine Antwort kam."""
+    # Windows und Linux/macOS benutzen unterschiedliche Optionen für ping
+    if platform.system() == "Windows":
+        befehl = ["ping", "-n", "1", "-w", "1000", ip]
+    else:
+        befehl = ["ping", "-c", "1", "-W", "1", ip]
+
+    ergebnis = subprocess.run(
+        befehl,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    # Rückgabewert 0 bedeutet: Das Gerät hat geantwortet
+    return ergebnis.returncode == 0
+
+
+def hole_namen(ip: str) -> str:
+    """Fragt den Gerätenamen zur Adresse ab, falls das Netzwerk einen kennt."""
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except OSError:
+        return "unbekannt"
+
+
+def scanne(netz: ipaddress.IPv4Network) -> list[str]:
+    """Pingt alle Adressen des Netzwerks gleichzeitig an."""
+    adressen = [str(ip) for ip in netz.hosts()]
+
+    # 50 Pings parallel, sonst würde ein ganzes Netz mehrere Minuten dauern
+    with ThreadPoolExecutor(max_workers=50) as pool:
+        antworten = pool.map(ist_erreichbar, adressen)
+
+    return [ip for ip, erreichbar in zip(adressen, antworten) if erreichbar]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Findet erreichbare Geräte im Netzwerk.")
+    parser.add_argument("netz", help="Netzwerk in CIDR-Schreibweise, z. B. 192.168.0.0/24")
+    args = parser.parse_args()
+
+    try:
+        netz = ipaddress.ip_network(args.netz, strict=False)
+    except ValueError:
+        sys.exit(f"Fehler: '{args.netz}' ist kein gültiges Netzwerk.")
+
+    if netz.version != 4:
+        sys.exit("Fehler: Es werden nur IPv4-Netzwerke unterstützt.")
+    if netz.num_addresses > 1024:
+        sys.exit("Fehler: Das Netzwerk ist zu groß (maximal /22).")
+
+    # Ohne das Programm "ping" kann das Skript nicht arbeiten
+    if shutil.which("ping") is None:
+        sys.exit("Fehler: Das Programm 'ping' ist auf diesem System nicht vorhanden.")
+
+    print(f"Scanne {netz} ...")
+    gefunden = scanne(netz)
+
+    print(f"\n{'IP-Adresse':<18}Name")
+    print("-" * 40)
+    for ip in gefunden:
+        print(f"{ip:<18}{hole_namen(ip)}")
+    print(f"\n{len(gefunden)} Gerät(e) erreichbar.")
+
+
+if __name__ == "__main__":
+    main()
