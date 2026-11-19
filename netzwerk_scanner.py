@@ -18,11 +18,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 def ist_erreichbar(ip: str) -> bool:
     """Schickt einen einzelnen Ping an die Adresse und meldet, ob eine Antwort kam."""
-    # Windows und Linux/macOS benutzen unterschiedliche Optionen für ping
-    if platform.system() == "Windows":
-        befehl = ["ping", "-n", "1", "-w", "1000", ip]
+    # Windows, macOS und Linux benutzen unterschiedliche Optionen für ping
+    system = platform.system()
+    if system == "Windows":
+        befehl = ["ping", "-n", "1", "-w", "1000", ip]  # Wartezeit in Millisekunden
+    elif system == "Darwin":
+        befehl = ["ping", "-c", "1", "-W", "1000", ip]  # macOS: Wartezeit in Millisekunden
     else:
-        befehl = ["ping", "-c", "1", "-W", "1", ip]
+        befehl = ["ping", "-c", "1", "-W", "1", ip]  # Linux: Wartezeit in Sekunden
 
     ergebnis = subprocess.run(
         befehl,
